@@ -132,29 +132,6 @@ mod tests {
 
     use super::*;
 
-    macro_rules! with_cloned {
-        ([$($variables: ident),* $(,)?], $body: stmt) => {
-            {
-                $(let $variables = $variables.clone();)*
-
-                $body
-            }
-        };
-    }
-
-    #[test]
-    fn access_source() {
-        let rc = Rc::new(String::from("Hello World!"));
-
-        let hello = RcReference::new(rc.clone(), |string| &string[0..5]);
-
-        drop(rc);
-
-        let world = RcReference::new(hello.source().clone(), |string| &string[6..11]);
-
-        assert_eq!(format!("{hello} {world}"), "Hello World");
-    }
-
     #[test]
     fn rc() {
         let rc = Rc::new(String::from("Hello World!"));
@@ -166,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn basic() {
+    fn arc() {
         let arc = Arc::new(String::from("Hello World!"));
 
         let hello = ArcReference::new(arc.clone(), |string| &string[0..5]);
@@ -188,7 +165,30 @@ mod tests {
     }
 
     #[test]
+    fn access_source() {
+        let rc = Rc::new(String::from("Hello World!"));
+
+        let hello = RcReference::new(rc.clone(), |string| &string[0..5]);
+
+        drop(rc);
+
+        let world = RcReference::new(hello.source().clone(), |string| &string[6..11]);
+
+        assert_eq!(format!("{hello} {world}"), "Hello World");
+    }
+
+    #[test]
     fn threaded() {
+        macro_rules! with_cloned {
+            ([$($variables: ident),* $(,)?], $body: stmt) => {
+                {
+                    $(let $variables = $variables.clone();)*
+
+                    $body
+                }
+            };
+        }
+
         let arc = Arc::new(String::from("Hello World!"));
 
         let hello = ArcReference::new(arc.clone(), |string| &string[0..5]);
