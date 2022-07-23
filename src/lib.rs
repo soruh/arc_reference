@@ -144,11 +144,11 @@ mod tests {
 
     #[test]
     fn access_source() {
-        let arc = Rc::new(String::from("Hello World!"));
+        let rc = Rc::new(String::from("Hello World!"));
 
-        let hello = RcReference::new(arc.clone(), |string| &string[0..5]);
+        let hello = RcReference::new(rc.clone(), |string| &string[0..5]);
 
-        drop(arc);
+        drop(rc);
 
         let world = RcReference::new(hello.source().clone(), |string| &string[6..11]);
 
@@ -157,10 +157,10 @@ mod tests {
 
     #[test]
     fn rc() {
-        let arc = Rc::new(String::from("Hello World!"));
+        let rc = Rc::new(String::from("Hello World!"));
 
-        let hello = RcReference::new(arc.clone(), |string| &string[0..5]);
-        let world = RcReference::new(arc.clone(), |string| &string[6..11]);
+        let hello = RcReference::new(rc.clone(), |string| &string[0..5]);
+        let world = RcReference::new(rc.clone(), |string| &string[6..11]);
 
         assert_eq!(format!("{hello} {world}"), "Hello World");
     }
