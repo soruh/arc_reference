@@ -2,56 +2,109 @@ use std::{
     fmt::{Debug, Display},
     ops::Deref,
     ptr::NonNull,
+    rc::Rc,
     sync::Arc,
 };
 
-pub trait TakeArcReference<O> {
-    fn take_reference<R>(&self, f: impl FnOnce(&O) -> &R) -> ArcReference<O, R>
-    where
-        R: ?Sized;
-}
+macro_rules! implementation {
+    ($reference_name: ident, $context_name: ident, $rc_type: ident, $multiple_method_name: ident) => {
+        pub struct $reference_name<O, R>
+        where
+            R: ?Sized,
+        {
+            inner: $rc_type<O>,
+            ptr: NonNull<R>,
+        }
 
-impl<O> TakeArcReference<O> for Arc<O> {
-    fn take_reference<R>(&self, f: impl FnOnce(&O) -> &R) -> ArcReference<O, R>
-    where
-        R: ?Sized,
-    {
-        ArcReference::new(Arc::clone(self), f)
-    }
-
-    // fn take_references<'r, R, F, I, J>(&self, f: F) -> J
-    // where
-    //     R: ToOwned<Owned = T> + ?Sized + 'r,
-    //     I: IntoIterator<Item = &'r R>,
-    //     F: FnOnce(&'r T) -> I,
-    //     T: 'r,
-    //     J: Iterator<Item = ArcReference<R>>,
-    // {
-    //     ArcReference::multiple(Arc::clone(self), f)
-    // }
-}
-
-pub struct ArcReference<O, R>
-where
-    R: ?Sized,
-{
-    inner: Arc<O>,
-    ptr: NonNull<R>,
-}
-
-impl<O, R> ArcReference<O, R>
-where
-    R: ?Sized,
-{
-    pub fn new(inner: Arc<O>, f: impl FnOnce(&O) -> &R) -> Self {
-        unsafe {
-            Self {
-                ptr: NonNull::new_unchecked(f(&inner) as *const R as *mut R),
-                inner,
+        impl<O, R> $reference_name<O, R>
+        where
+            R: ?Sized,
+        {
+            pub fn new(inner: $rc_type<O>, f: impl FnOnce(&O) -> &R) -> Self {
+                unsafe {
+                    Self {
+                        ptr: NonNull::new_unchecked(f(&inner) as *const R as *mut R),
+                        inner,
+                    }
+                }
             }
         }
-    }
+
+        impl<O, R> Clone for $reference_name<O, R>
+        where
+            R: ?Sized,
+        {
+            fn clone(&self) -> Self {
+                Self {
+                    inner: self.inner.clone(),
+                    ptr: self.ptr,
+                }
+            }
+        }
+
+        impl<O, R> Deref for $reference_name<O, R>
+        where
+            R: ?Sized,
+        {
+            type Target = R;
+
+            fn deref(&self) -> &Self::Target {
+                unsafe { &*self.ptr.as_ptr() }
+            }
+        }
+        impl<O, R> AsRef<R> for $reference_name<O, R>
+        where
+            R: ?Sized,
+        {
+            fn as_ref(&self) -> &R {
+                &*self
+            }
+        }
+
+        impl<O, R> Display for $reference_name<O, R>
+        where
+            R: ?Sized + Display,
+        {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                <R as Display>::fmt(&self, f)
+            }
+        }
+
+        impl<O, R> Debug for $reference_name<O, R>
+        where
+            R: ?Sized + Debug,
+        {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                <R as Debug>::fmt(&self, f)
+            }
+        }
+
+        pub struct $context_name<'a, T> {
+            inner: &'a $rc_type<T>,
+        }
+
+        impl<'a, O> $context_name<'a, O> {
+            pub fn new_reference<R>(&'a self, r: &'a R) -> $reference_name<O, R> {
+                unsafe {
+                    $reference_name {
+                        ptr: NonNull::new_unchecked(r as *const R as *mut R),
+                        inner: self.inner.clone(),
+                    }
+                }
+            }
+        }
+
+        pub fn $multiple_method_name<T, R>(
+            arc: &$rc_type<T>,
+            f: impl FnOnce($context_name<T>, &T) -> R,
+        ) -> R {
+            f($context_name { inner: &arc }, &arc)
+        }
+    };
 }
+
+implementation!(RcReference, RcMultipleContext, Rc, rc_multiple);
+implementation!(ArcReference, ArcMultipleContext, Arc, arc_multiple);
 
 unsafe impl<O, R> Send for ArcReference<O, R>
 where
@@ -69,74 +122,6 @@ where
 {
 }
 
-impl<O, R> Clone for ArcReference<O, R>
-where
-    R: ?Sized,
-{
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            ptr: self.ptr,
-        }
-    }
-}
-
-impl<O, R> Deref for ArcReference<O, R>
-where
-    R: ?Sized,
-{
-    type Target = R;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.ptr.as_ptr() }
-    }
-}
-impl<O, R> AsRef<R> for ArcReference<O, R>
-where
-    R: ?Sized,
-{
-    fn as_ref(&self) -> &R {
-        &*self
-    }
-}
-
-impl<O, R> Display for ArcReference<O, R>
-where
-    R: ?Sized + Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <R as Display>::fmt(&self, f)
-    }
-}
-
-impl<O, R> Debug for ArcReference<O, R>
-where
-    R: ?Sized + Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <R as Debug>::fmt(&self, f)
-    }
-}
-
-pub struct Context<'a, T> {
-    inner: &'a Arc<T>,
-}
-
-impl<'a, O> Context<'a, O> {
-    pub fn new_reference<R>(&'a self, r: &'a R) -> ArcReference<O, R> {
-        unsafe {
-            ArcReference {
-                ptr: NonNull::new_unchecked(r as *const R as *mut R),
-                inner: self.inner.clone(),
-            }
-        }
-    }
-}
-
-pub fn multiple<T, R>(arc: &Arc<T>, f: impl FnOnce(Context<T>, &T) -> R) -> R {
-    f(Context { inner: &arc }, &arc)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Barrier;
@@ -151,6 +136,16 @@ mod tests {
                 $body
             }
         };
+    }
+
+    #[test]
+    fn rc() {
+        let arc = Rc::new(String::from("Hello World!"));
+
+        let hello = RcReference::new(arc.clone(), |string| -> &str { &string[0..5] });
+        let world = RcReference::new(arc.clone(), |string| -> &str { &string[6..11] });
+
+        assert_eq!(format!("{hello} {world}"), "Hello World");
     }
 
     #[test]
@@ -179,8 +174,8 @@ mod tests {
     fn threaded() {
         let arc = Arc::new(String::from("Hello World!"));
 
-        let hello = arc.take_reference(|string| &string[0..5]);
-        let world = arc.take_reference(|string| &string[6..11]);
+        let hello = ArcReference::new(arc.clone(), |string| &string[0..5]);
+        let world = ArcReference::new(arc.clone(), |string| &string[6..11]);
 
         let barrier = Arc::new(Barrier::new(3));
 
@@ -211,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple() {
+    fn test_multiple_arc() {
         struct Foo {
             a: u8,
             b: u32,
@@ -224,7 +219,7 @@ mod tests {
             c: String::from("Foo"),
         });
 
-        let (a, b, c) = multiple(&foo, |ctx, value| {
+        let (a, b, c) = arc_multiple(&foo, |ctx, value| {
             (
                 ctx.new_reference(&value.a),
                 ctx.new_reference(&value.b),
@@ -247,5 +242,34 @@ mod tests {
         a.join().unwrap();
         b.join().unwrap();
         c.join().unwrap();
+    }
+
+    #[test]
+    fn test_multiple_rc() {
+        struct Foo {
+            a: u8,
+            b: u32,
+            c: String,
+        }
+
+        let foo = Rc::new(Foo {
+            a: 42,
+            b: 1024,
+            c: String::from("Foo"),
+        });
+
+        let (a, b, c) = rc_multiple(&foo, |ctx, value| {
+            (
+                ctx.new_reference(&value.a),
+                ctx.new_reference(&value.b),
+                ctx.new_reference(&value.c),
+            )
+        });
+
+        drop(foo);
+
+        assert_eq!(*a, 42);
+        assert_eq!(*b, 1024);
+        assert_eq!(*c, "Foo");
     }
 }
