@@ -28,6 +28,10 @@ macro_rules! implementation {
                     }
                 }
             }
+
+            pub fn source(&self) -> &$rc_type<O> {
+                &self.inner
+            }
         }
 
         impl<O, R> Clone for $reference_name<O, R>
@@ -136,6 +140,19 @@ mod tests {
                 $body
             }
         };
+    }
+
+    #[test]
+    fn access_source() {
+        let arc = Rc::new(String::from("Hello World!"));
+
+        let hello = RcReference::new(arc.clone(), |string| -> &str { &string[0..5] });
+
+        drop(arc);
+
+        let world = RcReference::new(hello.source().clone(), |string| -> &str { &string[6..11] });
+
+        assert_eq!(format!("{hello} {world}"), "Hello World");
     }
 
     #[test]
