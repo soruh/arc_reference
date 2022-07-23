@@ -5,62 +5,73 @@ use std::{
     sync::Arc,
 };
 
-pub trait TakeArcReference<T> {
-    fn take_reference<R>(&self, f: impl FnOnce(&T) -> &R) -> ArcReference<R>
+pub trait TakeArcReference<O> {
+    fn take_reference<R>(&self, f: impl FnOnce(&O) -> &R) -> ArcReference<O, R>
     where
-        R: ToOwned<Owned = T> + ?Sized;
+        R: ?Sized;
 }
 
-impl<T> TakeArcReference<T> for Arc<T> {
-    fn take_reference<R>(&self, f: impl FnOnce(&T) -> &R) -> ArcReference<R>
+impl<O> TakeArcReference<O> for Arc<O> {
+    fn take_reference<R>(&self, f: impl FnOnce(&O) -> &R) -> ArcReference<O, R>
     where
-        R: ToOwned<Owned = T> + ?Sized,
+        R: ?Sized,
     {
         ArcReference::new(Arc::clone(self), f)
     }
+
+    // fn take_references<'r, R, F, I, J>(&self, f: F) -> J
+    // where
+    //     R: ToOwned<Owned = T> + ?Sized + 'r,
+    //     I: IntoIterator<Item = &'r R>,
+    //     F: FnOnce(&'r T) -> I,
+    //     T: 'r,
+    //     J: Iterator<Item = ArcReference<R>>,
+    // {
+    //     ArcReference::multiple(Arc::clone(self), f)
+    // }
 }
 
-pub struct ArcReference<T>
+pub struct ArcReference<O, R>
 where
-    T: ToOwned + ?Sized,
+    R: ?Sized,
 {
-    inner: Arc<T::Owned>,
-    ptr: NonNull<T>,
+    inner: Arc<O>,
+    ptr: NonNull<R>,
 }
 
-impl<T> ArcReference<T>
+impl<O, R> ArcReference<O, R>
 where
-    T: ToOwned + ?Sized,
+    R: ?Sized,
 {
-    pub fn new(inner: Arc<T::Owned>, f: impl FnOnce(&T::Owned) -> &T) -> Self {
+    pub fn new(inner: Arc<O>, f: impl FnOnce(&O) -> &R) -> Self {
         unsafe {
             Self {
-                ptr: NonNull::new_unchecked(f(&inner) as *const _ as *mut _),
+                ptr: NonNull::new_unchecked(f(&inner) as *const R as *mut R),
                 inner,
             }
         }
     }
 }
 
-unsafe impl<T> Send for ArcReference<T>
+unsafe impl<O, R> Send for ArcReference<O, R>
 where
-    T: ToOwned + ?Sized,
-    Arc<T::Owned>: Send,
-    for<'r> &'r T: Send,
+    R: ?Sized,
+    Arc<O>: Send,
+    for<'r> &'r R: Send,
 {
 }
 
-unsafe impl<T> Sync for ArcReference<T>
+unsafe impl<O, R> Sync for ArcReference<O, R>
 where
-    T: ToOwned + ?Sized,
-    Arc<T::Owned>: Sync,
-    for<'r> &'r T: Sync,
+    R: ?Sized,
+    Arc<O>: Sync,
+    for<'r> &'r R: Sync,
 {
 }
 
-impl<T> Clone for ArcReference<T>
+impl<O, R> Clone for ArcReference<O, R>
 where
-    T: ToOwned + ?Sized,
+    R: ?Sized,
 {
     fn clone(&self) -> Self {
         Self {
@@ -70,42 +81,60 @@ where
     }
 }
 
-impl<T> Deref for ArcReference<T>
+impl<O, R> Deref for ArcReference<O, R>
 where
-    T: ToOwned + ?Sized,
+    R: ?Sized,
 {
-    type Target = T;
+    type Target = R;
 
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.ptr.as_ptr() }
     }
 }
-
-impl<T> AsRef<T> for ArcReference<T>
+impl<O, R> AsRef<R> for ArcReference<O, R>
 where
-    T: ToOwned + ?Sized,
+    R: ?Sized,
 {
-    fn as_ref(&self) -> &T {
+    fn as_ref(&self) -> &R {
         &*self
     }
 }
 
-impl<T> Display for ArcReference<T>
+impl<O, R> Display for ArcReference<O, R>
 where
-    T: ToOwned + ?Sized + Display,
+    R: ?Sized + Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <T as Display>::fmt(&self, f)
+        <R as Display>::fmt(&self, f)
     }
 }
 
-impl<T> Debug for ArcReference<T>
+impl<O, R> Debug for ArcReference<O, R>
 where
-    T: ToOwned + ?Sized + Debug,
+    R: ?Sized + Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <T as Debug>::fmt(&self, f)
+        <R as Debug>::fmt(&self, f)
     }
+}
+
+pub struct Context<'a, T> {
+    inner: &'a Arc<T>,
+}
+
+impl<'a, O> Context<'a, O> {
+    pub fn new_reference<R>(&'a self, r: &'a R) -> ArcReference<O, R> {
+        unsafe {
+            ArcReference {
+                ptr: NonNull::new_unchecked(r as *const R as *mut R),
+                inner: self.inner.clone(),
+            }
+        }
+    }
+}
+
+pub fn multiple<T, R>(arc: &Arc<T>, f: impl FnOnce(Context<T>, &T) -> R) -> R {
+    f(Context { inner: &arc }, &arc)
 }
 
 #[cfg(test)]
@@ -174,6 +203,45 @@ mod tests {
         let c = std::thread::spawn(move || {
             drop(arc);
             barrier.wait();
+        });
+
+        a.join().unwrap();
+        b.join().unwrap();
+        c.join().unwrap();
+    }
+
+    #[test]
+    fn test_multiple() {
+        struct Foo {
+            a: u8,
+            b: u32,
+            c: String,
+        }
+
+        let foo = Arc::new(Foo {
+            a: 42,
+            b: 1024,
+            c: String::from("Foo"),
+        });
+
+        let (a, b, c) = multiple(&foo, |ctx, value| {
+            (
+                ctx.new_reference(&value.a),
+                ctx.new_reference(&value.b),
+                ctx.new_reference(&value.c),
+            )
+        });
+
+        drop(foo);
+
+        let a = std::thread::spawn(move || {
+            assert_eq!(*a, 42);
+        });
+        let b = std::thread::spawn(move || {
+            assert_eq!(*b, 1024);
+        });
+        let c = std::thread::spawn(move || {
+            assert_eq!(*c, "Foo");
         });
 
         a.join().unwrap();
