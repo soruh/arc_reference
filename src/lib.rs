@@ -146,11 +146,11 @@ mod tests {
     fn access_source() {
         let arc = Rc::new(String::from("Hello World!"));
 
-        let hello = RcReference::new(arc.clone(), |string| -> &str { &string[0..5] });
+        let hello = RcReference::new(arc.clone(), |string| &string[0..5]);
 
         drop(arc);
 
-        let world = RcReference::new(hello.source().clone(), |string| -> &str { &string[6..11] });
+        let world = RcReference::new(hello.source().clone(), |string| &string[6..11]);
 
         assert_eq!(format!("{hello} {world}"), "Hello World");
     }
@@ -159,8 +159,8 @@ mod tests {
     fn rc() {
         let arc = Rc::new(String::from("Hello World!"));
 
-        let hello = RcReference::new(arc.clone(), |string| -> &str { &string[0..5] });
-        let world = RcReference::new(arc.clone(), |string| -> &str { &string[6..11] });
+        let hello = RcReference::new(arc.clone(), |string| &string[0..5]);
+        let world = RcReference::new(arc.clone(), |string| &string[6..11]);
 
         assert_eq!(format!("{hello} {world}"), "Hello World");
     }
@@ -169,8 +169,8 @@ mod tests {
     fn basic() {
         let arc = Arc::new(String::from("Hello World!"));
 
-        let hello = ArcReference::new(arc.clone(), |string| -> &str { &string[0..5] });
-        let world = ArcReference::new(arc.clone(), |string| -> &str { &string[6..11] });
+        let hello = ArcReference::new(arc.clone(), |string| &string[0..5]);
+        let world = ArcReference::new(arc.clone(), |string| &string[6..11]);
 
         assert_eq!(format!("{hello} {world}"), "Hello World");
     }
@@ -179,8 +179,8 @@ mod tests {
     fn drop_arc() {
         let arc = Arc::new(String::from("Hello World!"));
 
-        let hello = ArcReference::new(arc.clone(), |string| -> &str { &string[0..5] });
-        let world = ArcReference::new(arc.clone(), |string| -> &str { &string[6..11] });
+        let hello = ArcReference::new(arc.clone(), |string| &string[0..5]);
+        let world = ArcReference::new(arc.clone(), |string| &string[6..11]);
 
         drop(arc);
 
